@@ -1,0 +1,96 @@
+library("dplyr")
+library("GGally")
+library("NbClust")
+library("factoextra")
+library("dbscan")
+library("fpc")
+library ("cluster")   #####Knowing the dataset
+
+df = read.csv("../input/customer-segmentation-tutorial-in-python/Mall_Customers.csv")   
+
+glimpse(df)
+
+df$CustomerID<-NULL
+
+options(repr.plot.width=12, repr.plot.height=8)
+ggpairs(df,aes(color=Gender))+theme_bw(base_size = 16)
+
+##2- Clustering
+
+##  Preprocessing
+#Here, after take care of the categorical column, I'm going to bring variables into the same scale using standardization.
+
+df$Gender<-as.numeric(as.character(factor(df$Gender, c("Male", "Female"), labels=c(1,0))))
+dfs<-scale(df)
+
+##K-Means
+
+wss<-0
+for (n in 1:10){
+    km<-kmeans(dfs, centers=n, nstart=10, iter.max=50) #starts with random centroids 10 times
+    wss[n]<-km$tot.withinss
+}
+options(repr.plot.width=5, repr.plot.height=5)
+plot(wss, type="b", xlab="Number of clusters (n)", ylab="Sum of squares within groups")
+
+set.seed(1)
+km<-kmeans(dfs, centers=5, nstart=5, iter.max=500)
+km
+
+df$kmeans = km$cluster
+df%>%
+group_by(kmeans)%>%
+summarise(Age_mean= mean(Age),
+          AnIncome_mean= mean(Annual.Income..k..),
+          SpenScore_mean= mean(Spending.Score..1.100.),
+          Gender=(mean(Gender)),
+          Count=(length(kmeans)))
+          
+fviz_silhouette(eclust(dfs, FUNcluster="kmeans", k=5, hc_metric="euclidean"))
+
+df$kmeans<-NULL
+
+### Hierarquical
+
+hm<-hclust(dist(dfs)) # Euclidian distance and complete linkage as default
+options(repr.plot.width=15, repr.plot.height=6)
+plot(hm)
+
+df$hclust <- cutree(hm, k = 4)
+
+df%>%
+group_by(hclust)%>%
+summarise(Age_mean= mean(Age),
+          AnIncome_mean= mean(Annual.Income..k..),
+          SpenScore_mean= mean(Spending.Score..1.100.),
+          Gender=(mean(Gender)),
+          Count=(length(hclust)))
+          
+fviz_cluster(eclust(dfs,FUNcluster="hclust", k=4, hc_metric="euclidean", hc_method="complete"), dfs, geom = "point")
+
+fviz_silhouette(eclust(dfs,FUNcluster="hclust", k=4, hc_metric="euclidean", hc_method="complete"))
+
+df$hclust <- NULL
+
+## DBSCAN
+
+# optimal eps - what is the average distance of points to its k nearest neighbors? Pay attention to the elbow.
+options(repr.plot.width=5, repr.plot.height=5)
+kNNdistplot(dfs, k=3) # k= MinPoints
+
+set.seed(1)
+dm<-fpc::dbscan(dfs, eps=0.8, MinPts=3)
+df$dbscan = dm$cluster
+
+
+df%>%
+group_by(dbscan)%>%
+summarise(Age_mean= mean(Age),
+          AnIncome_mean= mean(Annual.Income..k..),
+          SpenScore_mean= mean(Spending.Score..1.100.),
+          Gender=(mean(Gender)),
+          Count=(length(dbscan)))
+     
+fviz_cluster(dm, dfs, geom = "point")
+
+fviz_silhouette(silhouette(df$dbscan , dist(dfs)))
